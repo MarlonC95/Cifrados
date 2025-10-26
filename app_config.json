@@ -1,0 +1,17 @@
+{
+  "app_info": {
+    "name": "Sistema de Criptograf\u00eda Asim\u00e9trica",
+    "version": "2.0",
+    "last_launch": "2025-10-25T21:22:26.022101"
+  },
+  "paths": {
+    "keys_folder": "c:\\Users\\USUARIO\\Documents\\Programas Python\\Proyecto\\Compresores\\Cifrados\\keys_storage",
+    "backup_folder": "c:\\Users\\USUARIO\\Documents\\Programas Python\\Proyecto\\Compresores\\Cifrados\\keys_storage\\backup"
+  },
+  "security": {
+    "default_algorithm": "RSA",
+    "default_key_size": 2048,
+    "auto_save_keys": true,
+    "auto_backup": true
+  }
+}
