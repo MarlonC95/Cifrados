@@ -4,7 +4,6 @@ Script de inicialización para crear la estructura de carpetas
 """
 
 import os
-import sys
 from Configu import Config
 
 def setup_environment():
