@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Script de inicialización para crear la estructura de carpetas
-"""
-
 import os
 from Configu import Config
 

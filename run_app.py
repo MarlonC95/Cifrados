@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Sistema Avanzado de Criptografía Asimétrica
-Ejecutor principal con verificación de entorno
-"""
 import os
 def check_environment():
     """Verificar y configurar el entorno"""

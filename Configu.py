@@ -1,7 +1,3 @@
-"""
-Configuración de la aplicación de criptografía
-"""
-
 import os
 import json
 from datetime import datetime
