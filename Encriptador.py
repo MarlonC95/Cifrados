@@ -10,7 +10,10 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding, ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding as sym_padding
 import base64
+import secrets
 
 # Configuración de customtkinter
 ctk.set_appearance_mode("Dark")
@@ -312,6 +315,12 @@ class CryptoApp(ctk.CTk):
                                   font=ctk.CTkFont(size=20, weight="bold"))
         title_label.pack(pady=10)
         
+        # Información de cifrado
+        info_label = ctk.CTkLabel(self.tab_encrypt, 
+                                 text="💡 Para textos largos se usa cifrado híbrido (RSA + AES)",
+                                 text_color="lightblue")
+        info_label.pack(pady=5)
+        
         # Frame para modo de operación
         mode_frame = ctk.CTkFrame(self.tab_encrypt)
         mode_frame.pack(fill="x", padx=20, pady=10)
@@ -351,10 +360,6 @@ class CryptoApp(ctk.CTk):
                                      command=self.load_file_for_encryption)
         load_file_btn.pack(side="left", padx=5)
         
-        save_file_btn = ctk.CTkButton(file_buttons_frame, text="Guardar Resultado",
-                                     command=self.save_encrypted_text)
-        save_file_btn.pack(side="left", padx=5)
-        
         # Botones de operación
         op_buttons_frame = ctk.CTkFrame(self.tab_encrypt)
         op_buttons_frame.pack(fill="x", padx=20, pady=10)
@@ -381,9 +386,32 @@ class CryptoApp(ctk.CTk):
         self.encrypt_result = scrolledtext.ScrolledText(result_frame, height=8)
         self.encrypt_result.pack(fill="both", expand=True, pady=5)
         
+        # Frame para guardar resultados
+        save_results_frame = ctk.CTkFrame(self.tab_encrypt)
+        save_results_frame.pack(fill="x", padx=20, pady=10)
+        
+        save_results_label = ctk.CTkLabel(save_results_frame, text="Guardar Resultados:",
+                                        font=ctk.CTkFont(weight="bold"))
+        save_results_label.pack(pady=5)
+        
+        save_buttons_frame = ctk.CTkFrame(save_results_frame)
+        save_buttons_frame.pack(pady=5)
+        
+        save_encrypted_btn = ctk.CTkButton(save_buttons_frame, text="💾 Guardar Texto Cifrado",
+                                          command=self.save_encrypted_complete)
+        save_encrypted_btn.pack(side="left", padx=5)
+        
+        save_decrypted_btn = ctk.CTkButton(save_buttons_frame, text="💾 Guardar Texto Descifrado",
+                                          command=self.save_decrypted_complete)
+        save_decrypted_btn.pack(side="left", padx=5)
+        
+        save_both_btn = ctk.CTkButton(save_buttons_frame, text="💾 Guardar Ambos",
+                                     command=self.save_both_results)
+        save_both_btn.pack(side="left", padx=5)
+        
         # Ocultar frame de archivo inicialmente
         self.file_info_frame.pack_forget()
-        
+    
     def setup_sign_tab(self):
         """Configurar la pestaña de firma digital"""
         # Título
@@ -538,7 +566,312 @@ class CryptoApp(ctk.CTk):
         self.stats_display.pack(fill="x", pady=5)
         self.stats_display.insert("1.0", "Las estadísticas aparecerán aquí...")
         self.stats_display.configure(state="disabled")
-        
+    
+    # ========== MÉTODOS DE CIFRADO HÍBRIDO ==========
+    
+    def encrypt_rsa_aes_hybrid(self, plaintext):
+        """Cifrado híbrido RSA + AES para textos largos"""
+        try:
+            # Generar una clave AES aleatoria
+            aes_key = secrets.token_bytes(32)  # 256 bits
+            iv = secrets.token_bytes(16)       # Vector de inicialización
+            
+            # Cifrar la clave AES con RSA
+            encrypted_aes_key = self.public_key.encrypt(
+                aes_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            
+            # Cifrar el texto con AES
+            cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv))
+            encryptor = cipher.encryptor()
+            
+            # Aplicar padding al texto
+            padder = sym_padding.PKCS7(128).padder()
+            padded_data = padder.update(plaintext) + padder.finalize()
+            
+            # Cifrar los datos
+            ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+            
+            # Combinar todo en un formato estructurado
+            hybrid_data = {
+                'version': '1.0',
+                'algorithm': 'RSA-AES-HYBRID',
+                'encrypted_key': base64.b64encode(encrypted_aes_key).decode('utf-8'),
+                'iv': base64.b64encode(iv).decode('utf-8'),
+                'ciphertext': base64.b64encode(ciphertext).decode('utf-8'),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            return json.dumps(hybrid_data)
+            
+        except Exception as e:
+            raise Exception(f"Error en cifrado híbrido: {str(e)}")
+    
+    def decrypt_rsa_aes_hybrid(self, encrypted_data_str):
+        """Descifrado híbrido RSA + AES"""
+        try:
+            # Parsear los datos
+            hybrid_data = json.loads(encrypted_data_str)
+            
+            # Extraer componentes
+            encrypted_aes_key = base64.b64decode(hybrid_data['encrypted_key'])
+            iv = base64.b64decode(hybrid_data['iv'])
+            ciphertext = base64.b64decode(hybrid_data['ciphertext'])
+            
+            # Descifrar la clave AES con RSA
+            aes_key = self.private_key.decrypt(
+                encrypted_aes_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            
+            # Descifrar el texto con AES
+            cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv))
+            decryptor = cipher.decryptor()
+            
+            # Descifrar datos
+            padded_plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+            
+            # Remover padding
+            unpadder = sym_padding.PKCS7(128).unpadder()
+            plaintext = unpadder.update(padded_plaintext) + unpadder.finalize()
+            
+            return plaintext
+            
+        except Exception as e:
+            raise Exception(f"Error en descifrado híbrido: {str(e)}")
+    
+    def encrypt_simple_rsa(self, plaintext):
+        """Cifrado RSA simple para textos cortos"""
+        try:
+            ciphertext = self.public_key.encrypt(
+                plaintext,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            
+            return base64.b64encode(ciphertext).decode('utf-8')
+            
+        except Exception as e:
+            raise Exception(f"Error en cifrado RSA simple: {str(e)}")
+    
+    def decrypt_simple_rsa(self, ciphertext_b64):
+        """Descifrado RSA simple para textos cortos"""
+        try:
+            ciphertext = base64.b64decode(ciphertext_b64)
+            
+            plaintext = self.private_key.decrypt(
+                ciphertext,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            
+            return plaintext
+            
+        except Exception as e:
+            raise Exception(f"Error en descifrado RSA simple: {str(e)}")
+    
+    # ========== MÉTODOS PRINCIPALES DE CIFRADO/DESCIFRADO ==========
+    
+    def encrypt_text_func(self):
+        """Cifrar texto/archivo usando el método apropiado"""
+        if self.public_key is None:
+            messagebox.showwarning("Advertencia", "Debe cargar una clave pública primero")
+            return
+            
+        try:
+            content = self.encrypt_text.get('1.0', 'end-1c')
+            
+            # Determinar si es texto plano o archivo binario
+            if content.startswith("[Archivo binario"):
+                # Extraer datos binarios de base64
+                lines = content.split('\n')
+                base64_data = lines[2] if len(lines) > 2 else ""
+                plaintext = base64.b64decode(base64_data)
+            else:
+                plaintext = content.encode('utf-8')
+            
+            if not plaintext:
+                messagebox.showwarning("Advertencia", "No hay contenido para cifrar")
+                return
+            
+            # Elegir método de cifrado basado en la longitud
+            if len(plaintext) <= 190:  # Límite para RSA directo
+                encrypted_data = self.encrypt_simple_rsa(plaintext)
+                method_used = "RSA Directo"
+            else:
+                encrypted_data = self.encrypt_rsa_aes_hybrid(plaintext)
+                method_used = "Híbrido RSA+AES"
+            
+            # Mostrar resultado
+            self.encrypt_result.delete('1.0', 'end')
+            self.encrypt_result.insert('1.0', f"Método usado: {method_used}\n")
+            self.encrypt_result.insert('end', f"Tamaño original: {len(plaintext)} bytes\n")
+            self.encrypt_result.insert('end', f"Tamaño cifrado: {len(encrypted_data)} bytes\n")
+            self.encrypt_result.insert('end', "=" * 50 + "\n")
+            self.encrypt_result.insert('end', encrypted_data)
+            
+            self.log_operation(f"Texto cifrado usando {method_used} - {len(plaintext)} bytes")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al cifrar: {str(e)}")
+    
+    def decrypt_text_func(self):
+        """Descifrar texto usando el método apropiado"""
+        if self.private_key is None:
+            messagebox.showwarning("Advertencia", "Debe cargar una clave privada primero")
+            return
+            
+        try:
+            encrypted_data = self.encrypt_text.get('1.0', 'end-1c').strip()
+            if not encrypted_data:
+                messagebox.showwarning("Advertencia", "No hay texto cifrado para descifrar")
+                return
+            
+            # Determinar el método de cifrado usado
+            if encrypted_data.startswith('{'):  # Formato JSON = cifrado híbrido
+                plaintext = self.decrypt_rsa_aes_hybrid(encrypted_data)
+                method_used = "Híbrido RSA+AES"
+            else:  # Base64 simple = cifrado RSA directo
+                plaintext = self.decrypt_simple_rsa(encrypted_data)
+                method_used = "RSA Directo"
+            
+            # Mostrar resultado
+            self.encrypt_result.delete('1.0', 'end')
+            self.encrypt_result.insert('1.0', f"Método usado: {method_used}\n")
+            self.encrypt_result.insert('end', f"Tamaño descifrado: {len(plaintext)} bytes\n")
+            self.encrypt_result.insert('end', "=" * 50 + "\n")
+            
+            # Intentar decodificar como texto, sino mostrar como binario
+            try:
+                decoded_text = plaintext.decode('utf-8')
+                self.encrypt_result.insert('end', decoded_text)
+            except UnicodeDecodeError:
+                self.encrypt_result.insert('end', f"[Contenido binario descifrado - {len(plaintext)} bytes]\n")
+                self.encrypt_result.insert('end', f"Base64: {base64.b64encode(plaintext).decode('utf-8')}")
+            
+            self.log_operation(f"Texto descifrado usando {method_used} - {len(plaintext)} bytes")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al descifrar: {str(e)}")
+    
+    # ========== MÉTODOS PARA GUARDAR RESULTADOS COMPLETOS ==========
+    
+    def save_encrypted_complete(self):
+        """Guardar texto cifrado completo en archivo"""
+        try:
+            encrypted_content = self.encrypt_result.get('1.0', 'end-1c')
+            if not encrypted_content.strip():
+                messagebox.showwarning("Advertencia", "No hay texto cifrado para guardar")
+                return
+            
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".enc",
+                filetypes=[
+                    ("Archivos cifrados", "*.enc"),
+                    ("Archivos JSON", "*.json"),
+                    ("Todos los archivos", "*.*")
+                ],
+                title="Guardar texto cifrado completo"
+            )
+            
+            if filename:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(encrypted_content)
+                
+                messagebox.showinfo("Éxito", f"Texto cifrado guardado en:\n{filename}")
+                self.log_operation(f"Texto cifrado guardado: {filename}")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al guardar texto cifrado: {str(e)}")
+    
+    def save_decrypted_complete(self):
+        """Guardar texto descifrado completo en archivo"""
+        try:
+            decrypted_content = self.encrypt_result.get('1.0', 'end-1c')
+            if not decrypted_content.strip():
+                messagebox.showwarning("Advertencia", "No hay texto descifrado para guardar")
+                return
+            
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[
+                    ("Archivos de texto", "*.txt"),
+                    ("Todos los archivos", "*.*")
+                ],
+                title="Guardar texto descifrado completo"
+            )
+            
+            if filename:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(decrypted_content)
+                
+                messagebox.showinfo("Éxito", f"Texto descifrado guardado en:\n{filename}")
+                self.log_operation(f"Texto descifrado guardado: {filename}")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al guardar texto descifrado: {str(e)}")
+    
+    def save_both_results(self):
+        """Guardar tanto el texto cifrado como el descifrado"""
+        try:
+            # Obtener contenido actual del resultado
+            result_content = self.encrypt_result.get('1.0', 'end-1c')
+            if not result_content.strip():
+                messagebox.showwarning("Advertencia", "No hay resultados para guardar")
+                return
+            
+            # Crear carpeta para los resultados
+            results_dir = "resultados_criptografia"
+            if not os.path.exists(results_dir):
+                os.makedirs(results_dir)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Guardar resultado completo
+            result_filename = os.path.join(results_dir, f"resultado_completo_{timestamp}.txt")
+            with open(result_filename, 'w', encoding='utf-8') as f:
+                f.write("=== RESULTADO DE OPERACIÓN CRIPTOGRÁFICA ===\n")
+                f.write(f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(result_content)
+            
+            # Si el resultado contiene texto cifrado, guardarlo por separado
+            if "Método usado:" in result_content and "Texto cifrado" not in result_content:
+                lines = result_content.split('\n')
+                for i, line in enumerate(lines):
+                    if line.startswith('{') or (len(line) > 100 and '=' not in line):
+                        # Posible texto cifrado
+                        encrypted_part = '\n'.join(lines[i:])
+                        encrypted_filename = os.path.join(results_dir, f"texto_cifrado_{timestamp}.enc")
+                        with open(encrypted_filename, 'w', encoding='utf-8') as f:
+                            f.write(encrypted_part)
+                        break
+            
+            messagebox.showinfo("Éxito", 
+                              f"Resultados guardados en:\n{results_dir}\n"
+                              f"Archivo principal: {os.path.basename(result_filename)}")
+            self.log_operation(f"Resultados completos guardados en: {results_dir}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al guardar ambos resultados: {str(e)}")
+    
+    # ========== MÉTODOS DE GESTIÓN DE CLAVES ==========
+    
     def generate_keys(self):
         """Generar un nuevo par de claves y guardar automáticamente"""
         try:
@@ -707,8 +1040,17 @@ class CryptoApp(ctk.CTk):
                 os.startfile(self.keys_folder)  # Windows
             else:
                 messagebox.showwarning("Advertencia", "La carpeta de llaves no existe")
-        except FileNotFoundError:
-            messagebox.showerror("Error", "No se pudo abrir la carpeta de llaves")
+        except OSError:
+            try:
+                # Alternativa para otros sistemas operativos
+                import subprocess
+                subprocess.run(['open', self.keys_folder])  # macOS
+            except Exception:
+                try:
+                    subprocess.run(['xdg-open', self.keys_folder])  # Linux
+                except Exception:
+                    messagebox.showinfo("Información", 
+                                      f"La carpeta de llaves está en:\n{os.path.abspath(self.keys_folder)}")
     
     def create_backup(self):
         """Crear un backup de todas las llaves"""
@@ -935,8 +1277,8 @@ class CryptoApp(ctk.CTk):
             if filename:
                 file_size = os.path.getsize(filename)
                 
-                if file_size > 1024 * 1024:  # 1MB limit
-                    messagebox.showwarning("Advertencia", "Archivo muy grande para cifrado RSA directo")
+                if file_size > 10 * 1024 * 1024:  # 10MB limit
+                    messagebox.showwarning("Advertencia", "Archivo muy grande para cifrado (límite 10MB)")
                     return
                 
                 # Leer como binario
@@ -969,111 +1311,7 @@ class CryptoApp(ctk.CTk):
             return True
         except UnicodeDecodeError:
             return False
-    
-    def encrypt_text_func(self):
-        """Cifrar texto/archivo usando clave pública"""
-        if self.public_key is None:
-            messagebox.showwarning("Advertencia", "Debe cargar una clave pública primero")
-            return
-            
-        try:
-            content = self.encrypt_text.get('1.0', 'end-1c')
-            
-            # Determinar si es texto plano o archivo binario
-            if content.startswith("[Archivo binario"):
-                # Extraer datos binarios de base64
-                lines = content.split('\n')
-                base64_data = lines[2] if len(lines) > 2 else ""
-                plaintext = base64.b64decode(base64_data)
-            else:
-                plaintext = content.encode('utf-8')
-            
-            if not plaintext:
-                messagebox.showwarning("Advertencia", "No hay contenido para cifrar")
-                return
-            
-            # Para archivos grandes, usar cifrado híbrido simulado
-            if len(plaintext) > 100:
-                self.encrypt_result.delete('1.0', 'end')
-                self.encrypt_result.insert('1.0', "[Modo híbrido - Cifrando con clave de sesión...]\n\n")
-                
-                # Simular cifrado híbrido
-                ciphertext = self.public_key.encrypt(
-                    plaintext[:190],  # Parte cifrada con RSA
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                        algorithm=hashes.SHA256(),
-                        label=None
-                    )
-                )
-                
-                encrypted_b64 = base64.b64encode(ciphertext).decode('utf-8')
-                self.encrypt_result.insert('end', f"Cifrado RSA (primeros 190 bytes):\n{encrypted_b64}\n\n")
-                self.encrypt_result.insert('end', "[Contenido restante cifrado con clave simétrica (no mostrado)]")
-            else:
-                # Cifrado normal para texto pequeño
-                ciphertext = self.public_key.encrypt(
-                    plaintext,
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                        algorithm=hashes.SHA256(),
-                        label=None
-                    )
-                )
-                
-                encrypted_b64 = base64.b64encode(ciphertext).decode('utf-8')
-                self.encrypt_result.delete('1.0', 'end')
-                self.encrypt_result.insert('1.0', encrypted_b64)
-            
-            self.log_operation("Texto/archivo cifrado exitosamente")
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al cifrar: {str(e)}")
-    
-    def decrypt_text_func(self):
-        """Descifrar texto usando clave privada"""
-        if self.private_key is None:
-            messagebox.showwarning("Advertencia", "Debe cargar una clave privada primero")
-            return
-            
-        try:
-            ciphertext_b64 = self.encrypt_text.get('1.0', 'end-1c').strip()
-            if not ciphertext_b64:
-                messagebox.showwarning("Advertencia", "No hay texto cifrado para descifrar")
-                return
-            
-            # Manejar diferentes formatos de entrada
-            if "[Archivo binario" in ciphertext_b64:
-                lines = ciphertext_b64.split('\n')
-                base64_data = lines[2] if len(lines) > 2 else ""
-                ciphertext = base64.b64decode(base64_data)
-            else:
-                ciphertext = base64.b64decode(ciphertext_b64)
-            
-            plaintext = self.private_key.decrypt(
-                ciphertext,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
-                )
-            )
-            
-            self.encrypt_result.delete('1.0', 'end')
-            
-            # Intentar decodificar como texto, sino mostrar como binario
-            try:
-                decoded_text = plaintext.decode('utf-8')
-                self.encrypt_result.insert('1.0', decoded_text)
-            except UnicodeDecodeError:
-                self.encrypt_result.insert('1.0', f"[Contenido binario descifrado - {len(plaintext)} bytes]\n")
-                self.encrypt_result.insert('end', f"Base64: {base64.b64encode(plaintext).decode('utf-8')}")
-            
-            self.log_operation("Texto/archivo descifrado exitosamente")
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al descifrar: {str(e)}")
-    
+
     def sign_message(self):
         """Firmar mensaje usando clave privada"""
         if self.private_key is None:
@@ -1183,6 +1421,7 @@ class CryptoApp(ctk.CTk):
             
             # Mostrar resultado final
             if self.public_key:
+                # Usar cifrado simple para la animación
                 ciphertext = self.public_key.encrypt(
                     plaintext.encode('utf-8'),
                     padding.OAEP(
@@ -1349,27 +1588,6 @@ class CryptoApp(ctk.CTk):
         self.sign_text.delete('1.0', 'end')
         self.signature_text.delete('1.0', 'end')
         self.verify_result.configure(text="")
-    
-    def save_encrypted_text(self):
-        """Guardar texto cifrado/descifrado como archivo"""
-        try:
-            content = self.encrypt_result.get('1.0', 'end-1c')
-            if not content.strip():
-                messagebox.showwarning("Advertencia", "No hay contenido para guardar")
-                return
-                
-            filename = filedialog.asksaveasfilename(
-                defaultextension=".txt",
-                filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
-            )
-            if filename:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                messagebox.showinfo("Éxito", f"Contenido guardado en: {filename}")
-                self.log_operation(f"Contenido guardado: {filename}")
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al guardar archivo: {str(e)}")
     
     def load_file_for_signing(self):
         """Cargar archivo para firmar"""

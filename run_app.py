@@ -1,4 +1,7 @@
+import sys
 import os
+import subprocess
+
 def check_environment():
     """Verificar y configurar el entorno"""
     print("🔍 Verificando entorno...")
@@ -14,6 +17,22 @@ def check_environment():
             print("⚠️ Ejecute primero: python setup_directories.py")
             return False
     
+    # Verificar dependencias
+    try:
+        import customtkinter
+        import cryptography
+        print("✓ Dependencias verificadas")
+    except ImportError as e:
+        print(f"✗ Dependencias faltantes: {e}")
+        print("📦 Instalando dependencias...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+            print("✓ Dependencias instaladas")
+        except subprocess.CalledProcessError:
+            print("✗ Error instalando dependencias")
+            return False
+    
+    return True
 
 def main():
     """Función principal"""
