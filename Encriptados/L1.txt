@@ -1,0 +1,6 @@
+[Modo híbrido - Cifrando con clave de sesión...]
+
+Cifrado RSA (primeros 190 bytes):
+J3HoZZRPOSKRGTo+/hHcqtMNof0kGXmTHIPmEDTE1qoNVoOdPIyjUeC4ganEFbyms7XPNMP1nG2aqZk1zqCZzfbqBR6R1xW/A+Jb49b302h1yTEEzBgMHzBW0LBaLvF6Z9ajkZqLKaG5N1QM8MwtkxbxK03XJ0aQPM56ppMDI4suXg+pWTBK+GUqNr22D7NM7DRK+goufACQhFS9+v/+JbNpo/ySlFzqtLS9FQWqq6T0WrOxFgh+Z48OhBx7gTjp+gOT1JPxHxOtlHE07+uuhd8FOiosAdAGUYVRZfWnz2mLhVx23tI3A4iuTVnX1kvbx9TnG/fVQlD31JOoSn8hLg==
+
+[Contenido restante cifrado con clave simétrica (no mostrado)]
