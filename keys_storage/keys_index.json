@@ -4,13 +4,20 @@
     "created": "2025-10-25 21:23:26",
     "private_key_path": "keys_storage\\rsa\\Claves b_20251025_212326_private.pem",
     "public_key_path": "keys_storage\\rsa\\Claves b_20251025_212326_public.pem",
-    "last_used": "2025-10-29 08:47:40"
+    "last_used": "2025-10-30 18:03:40"
   },
   "Prueba": {
     "algorithm": "RSA",
     "created": "2025-10-29 08:47:36",
     "private_key_path": "keys_storage\\rsa\\Prueba_20251029_084736_private.pem",
     "public_key_path": "keys_storage\\rsa\\Prueba_20251029_084736_public.pem",
-    "last_used": "2025-10-29 08:47:41"
+    "last_used": "2025-10-30 18:03:41"
+  },
+  "Nox": {
+    "algorithm": "ECC",
+    "created": "2025-10-30 18:03:03",
+    "private_key_path": "keys_storage\\ecc\\Nox_20251030_180303_private.pem",
+    "public_key_path": "keys_storage\\ecc\\Nox_20251030_180303_public.pem",
+    "last_used": "2025-10-30 18:03:43"
   }
 }

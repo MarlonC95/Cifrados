@@ -567,10 +567,10 @@ class CryptoApp(ctk.CTk):
         self.stats_display.insert("1.0", "Las estadísticas aparecerán aquí...")
         self.stats_display.configure(state="disabled")
     
-    # ========== MÉTODOS DE CIFRADO HÍBRIDO ==========
+    # ========== MÉTODOS DE CIFRADO HÍBRIDO CORREGIDOS ==========
     
     def encrypt_rsa_aes_hybrid(self, plaintext):
-        """Cifrado híbrido RSA + AES para textos largos"""
+        """Cifrado híbrido RSA + AES para textos largos - DEVUELVE SOLO BASE64"""
         try:
             # Generar una clave AES aleatoria
             aes_key = secrets.token_bytes(32)  # 256 bits
@@ -597,31 +597,28 @@ class CryptoApp(ctk.CTk):
             # Cifrar los datos
             ciphertext = encryptor.update(padded_data) + encryptor.finalize()
             
-            # Combinar todo en un formato estructurado
-            hybrid_data = {
-                'version': '1.0',
-                'algorithm': 'RSA-AES-HYBRID',
-                'encrypted_key': base64.b64encode(encrypted_aes_key).decode('utf-8'),
-                'iv': base64.b64encode(iv).decode('utf-8'),
-                'ciphertext': base64.b64encode(ciphertext).decode('utf-8'),
-                'timestamp': datetime.now().isoformat()
-            }
+            # Combinar todo en un solo string base64
+            # Formato: [encrypted_aes_key_base64]:[iv_base64]:[ciphertext_base64]
+            encrypted_data = base64.b64encode(encrypted_aes_key).decode('utf-8') + ":" + \
+                            base64.b64encode(iv).decode('utf-8') + ":" + \
+                            base64.b64encode(ciphertext).decode('utf-8')
             
-            return json.dumps(hybrid_data)
+            return encrypted_data
             
         except Exception as e:
             raise Exception(f"Error en cifrado híbrido: {str(e)}")
     
     def decrypt_rsa_aes_hybrid(self, encrypted_data_str):
-        """Descifrado híbrido RSA + AES"""
+        """Descifrado híbrido RSA + AES - RECIBE SOLO BASE64"""
         try:
-            # Parsear los datos
-            hybrid_data = json.loads(encrypted_data_str)
+            # Separar los componentes
+            parts = encrypted_data_str.split(":")
+            if len(parts) != 3:
+                raise ValueError("Formato de datos cifrados inválido")
             
-            # Extraer componentes
-            encrypted_aes_key = base64.b64decode(hybrid_data['encrypted_key'])
-            iv = base64.b64decode(hybrid_data['iv'])
-            ciphertext = base64.b64decode(hybrid_data['ciphertext'])
+            encrypted_aes_key = base64.b64decode(parts[0])
+            iv = base64.b64decode(parts[1])
+            ciphertext = base64.b64decode(parts[2])
             
             # Descifrar la clave AES con RSA
             aes_key = self.private_key.decrypt(
@@ -717,13 +714,13 @@ class CryptoApp(ctk.CTk):
                 encrypted_data = self.encrypt_rsa_aes_hybrid(plaintext)
                 method_used = "Híbrido RSA+AES"
             
-            # Mostrar resultado
+            # Mostrar resultado - SOLO EL TEXTO CIFRADO
             self.encrypt_result.delete('1.0', 'end')
             self.encrypt_result.insert('1.0', f"Método usado: {method_used}\n")
             self.encrypt_result.insert('end', f"Tamaño original: {len(plaintext)} bytes\n")
             self.encrypt_result.insert('end', f"Tamaño cifrado: {len(encrypted_data)} bytes\n")
             self.encrypt_result.insert('end', "=" * 50 + "\n")
-            self.encrypt_result.insert('end', encrypted_data)
+            self.encrypt_result.insert('end', encrypted_data)  # Solo el texto cifrado
             
             self.log_operation(f"Texto cifrado usando {method_used} - {len(plaintext)} bytes")
             
@@ -742,12 +739,17 @@ class CryptoApp(ctk.CTk):
                 messagebox.showwarning("Advertencia", "No hay texto cifrado para descifrar")
                 return
             
+            # Eliminar líneas informativas si existen
+            lines = encrypted_data.split('\n')
+            actual_encrypted_data = lines[-1] if '=' in lines[-1] else encrypted_data
+            
             # Determinar el método de cifrado usado
-            if encrypted_data.startswith('{'):  # Formato JSON = cifrado híbrido
-                plaintext = self.decrypt_rsa_aes_hybrid(encrypted_data)
+            if ':' in actual_encrypted_data and actual_encrypted_data.count(':') == 2:
+                # Formato híbrido: base64:base64:base64
+                plaintext = self.decrypt_rsa_aes_hybrid(actual_encrypted_data)
                 method_used = "Híbrido RSA+AES"
             else:  # Base64 simple = cifrado RSA directo
-                plaintext = self.decrypt_simple_rsa(encrypted_data)
+                plaintext = self.decrypt_simple_rsa(actual_encrypted_data)
                 method_used = "RSA Directo"
             
             # Mostrar resultado
@@ -783,7 +785,7 @@ class CryptoApp(ctk.CTk):
                 defaultextension=".enc",
                 filetypes=[
                     ("Archivos cifrados", "*.enc"),
-                    ("Archivos JSON", "*.json"),
+                    ("Archivos de texto", "*.txt"),
                     ("Todos los archivos", "*.*")
                 ],
                 title="Guardar texto cifrado completo"
@@ -854,9 +856,16 @@ class CryptoApp(ctk.CTk):
             if "Método usado:" in result_content and "Texto cifrado" not in result_content:
                 lines = result_content.split('\n')
                 for i, line in enumerate(lines):
-                    if line.startswith('{') or (len(line) > 100 and '=' not in line):
-                        # Posible texto cifrado
-                        encrypted_part = '\n'.join(lines[i:])
+                    if ':' in line and '=' in line and line.count(':') == 2:
+                        # Posible texto cifrado híbrido
+                        encrypted_part = line
+                        encrypted_filename = os.path.join(results_dir, f"texto_cifrado_{timestamp}.enc")
+                        with open(encrypted_filename, 'w', encoding='utf-8') as f:
+                            f.write(encrypted_part)
+                        break
+                    elif len(line) > 100 and '=' in line and ':' not in line:
+                        # Posible texto cifrado simple
+                        encrypted_part = line
                         encrypted_filename = os.path.join(results_dir, f"texto_cifrado_{timestamp}.enc")
                         with open(encrypted_filename, 'w', encoding='utf-8') as f:
                             f.write(encrypted_part)
@@ -1443,13 +1452,33 @@ class CryptoApp(ctk.CTk):
             self.animation_display.configure(state="disabled")
     
     def start_decryption_animation(self):
-        """Iniciar animación del proceso de descifrado"""
-        thread = threading.Thread(target=self.run_decryption_animation)
-        thread.daemon = True
-        thread.start()
+        """Iniciar animación del proceso de descifrado con manejo de errores"""
+        try:
+            # Verificar que hay texto para descifrar
+            ciphertext = self.animation_input.get("1.0", "end-1c").strip()
+            if not ciphertext:
+                messagebox.showwarning("Advertencia", "Ingrese texto cifrado para animar")
+                return
+            
+            # Verificar que hay clave privada
+            if self.private_key is None:
+                messagebox.showwarning("Advertencia", 
+                                    "No hay clave privada cargada.\n\n"
+                                    "Por favor:\n"
+                                    "1. Genere un par de claves en 'Gestión de Claves'\n"
+                                    "2. O cargue una clave privada existente\n"
+                                    "3. Asegúrese de usar la clave que corresponde al texto cifrado")
+                return
+            
+            thread = threading.Thread(target=self.run_decryption_animation)
+            thread.daemon = True
+            thread.start()
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo iniciar la animación: {str(e)}")
     
     def run_decryption_animation(self):
-        """Ejecutar animación de descifrado paso a paso"""
+        """Ejecutar animación de descifrado paso a paso - VERSIÓN CORREGIDA"""
         try:
             self.animation_display.configure(state="normal")
             self.animation_display.delete("1.0", "end")
@@ -1459,47 +1488,117 @@ class CryptoApp(ctk.CTk):
                 messagebox.showwarning("Advertencia", "Ingrese texto cifrado para animar")
                 return
             
-            steps = [
-                "🔍 Obteniendo texto cifrado...",
-                "📊 Decodificando base64...",
-                "🔢 Convirtiendo a bytes cifrados...",
-                "🔑 Obteniendo clave privada...",
-                "⚙️ Configurando padding OAEP...",
-                "🔓 Descifrando con RSA...",
-                "🔄 Convirtiendo bytes a texto...",
-                "✅ Proceso completado!"
-            ]
+            # Detectar el tipo de cifrado
+            if ':' in ciphertext_b64 and ciphertext_b64.count(':') == 2:
+                method_used = "Híbrido RSA+AES"
+                steps = [
+                    "🔍 Obteniendo texto cifrado...",
+                    "📊 Detectado: Cifrado Híbrido RSA+AES",
+                    "🔢 Separando componentes (clave:iv:texto)...",
+                    "📊 Decodificando base64...",
+                    "🔑 Obteniendo clave privada...",
+                    "🔓 Descifrando clave AES con RSA...",
+                    "⚙️ Configurando AES-CBC...",
+                    "🔓 Descifrando texto con AES...",
+                    "🗑️ Removiendo padding...",
+                    "🔄 Convirtiendo bytes a texto...",
+                    "✅ Proceso completado!"
+                ]
+            else:
+                method_used = "RSA Directo"
+                steps = [
+                    "🔍 Obteniendo texto cifrado...",
+                    "📊 Detectado: Cifrado RSA Directo",
+                    "📊 Decodificando base64...",
+                    "🔢 Convirtiendo a bytes cifrados...",
+                    "🔑 Obteniendo clave privada...",
+                    "⚙️ Configurando padding OAEP...",
+                    "🔓 Descifrando con RSA...",
+                    "🔄 Convirtiendo bytes a texto...",
+                    "✅ Proceso completado!"
+                ]
             
             for i, step in enumerate(steps):
                 self.animation_display.insert("end", f"Paso {i+1}: {step}\n")
                 self.animation_display.see("end")
                 self.animation_progress.set((i + 1) / len(steps))
                 self.animation_status.configure(text=step)
-                time.sleep(1.5)
+                time.sleep(1.2)  # Un poco más rápido para no hacerla muy larga
             
             # Mostrar resultado final
             if self.private_key:
                 try:
-                    ciphertext = base64.b64decode(ciphertext_b64)
-                    plaintext = self.private_key.decrypt(
-                        ciphertext,
-                        padding.OAEP(
-                            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                            algorithm=hashes.SHA256(),
-                            label=None
+                    if method_used == "Híbrido RSA+AES":
+                        # Descifrado híbrido
+                        parts = ciphertext_b64.split(":")
+                        if len(parts) != 3:
+                            raise ValueError("Formato de cifrado híbrido inválido")
+                        
+                        encrypted_aes_key = base64.b64decode(parts[0])
+                        iv = base64.b64decode(parts[1])
+                        ciphertext = base64.b64decode(parts[2])
+                        
+                        # Descifrar la clave AES con RSA
+                        aes_key = self.private_key.decrypt(
+                            encrypted_aes_key,
+                            padding.OAEP(
+                                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                                algorithm=hashes.SHA256(),
+                                label=None
+                            )
                         )
-                    )
-                    self.animation_display.insert("end", f"\n🎉 Texto descifrado: '{plaintext.decode('utf-8')}'\n")
+                        
+                        # Descifrar el texto con AES
+                        cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv))
+                        decryptor = cipher.decryptor()
+                        
+                        # Descifrar datos
+                        padded_plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+                        
+                        # Remover padding
+                        unpadder = sym_padding.PKCS7(128).unpadder()
+                        plaintext = unpadder.update(padded_plaintext) + unpadder.finalize()
+                        
+                    else:
+                        # Descifrado RSA simple
+                        ciphertext = base64.b64decode(ciphertext_b64)
+                        plaintext = self.private_key.decrypt(
+                            ciphertext,
+                            padding.OAEP(
+                                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                                algorithm=hashes.SHA256(),
+                                label=None
+                            )
+                        )
+                    
+                    # Intentar decodificar como texto
+                    try:
+                        decoded_text = plaintext.decode('utf-8')
+                        self.animation_display.insert("end", f"\n🎉 Texto descifrado ({method_used}):\n'{decoded_text}'\n")
+                    except UnicodeDecodeError:
+                        # Si no es texto UTF-8 válido, mostrar información binaria
+                        self.animation_display.insert("end", f"\n🎉 Contenido descifrado ({method_used}):\n")
+                        self.animation_display.insert("end", f"• Tipo: Binario ({len(plaintext)} bytes)\n")
+                        self.animation_display.insert("end", f"• Primeros bytes: {list(plaintext[:10])}\n")
+                        self.animation_display.insert("end", f"• Base64: {base64.b64encode(plaintext).decode('utf-8')}\n")
+                    
+                    # Mostrar información adicional
+                    self.animation_display.insert("end", "📄 Información del descifrado:\n")
+                    self.animation_display.insert("end", f"• Método: {method_used}\n")
+                    self.animation_display.insert("end", f"• Tamaño descifrado: {len(plaintext)} bytes\n")
+                    
                 except Exception as e:
                     self.animation_display.insert("end", f"\n❌ Error en descifrado: {str(e)}\n")
+                    self.animation_display.insert("end", "⚠️ Asegúrese de que la clave privada corresponde al texto cifrado\n")
             else:
                 self.animation_display.insert("end", "\n⚠️ No hay clave privada para descifrado real\n")
+                self.animation_display.insert("end", "💡 Cargue una clave privada primero en la pestaña 'Gestión de Claves'\n")
             
             self.animation_display.configure(state="disabled")
             self.log_operation("Animación de descifrado completada")
             
         except Exception as e:
-            self.animation_display.insert("end", f"\n❌ Error: {str(e)}\n")
+            self.animation_display.insert("end", f"\n❌ Error general: {str(e)}\n")
             self.animation_display.configure(state="disabled")
     
     def clear_animation(self):
